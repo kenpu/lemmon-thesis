@@ -103,11 +103,13 @@ def table_to_numpy(db, table):
     return np.asarray(matrix), scheme
 
 def build_nn(stats, scheme, target_attr):
-    pass
+    print(stats)
+    print(scheme)
 
 def main():
     m, s = table_to_numpy(db, 'Player_Attributes')
     print(m.shape)
+    build_nn(get_stats(db, 'Player_Attributes'),s,'overall_rating')
 
 if __name__ == '__main__':
     main()
