@@ -102,14 +102,19 @@ def table_to_numpy(db, table):
         matrix.append(row)
     return np.asarray(matrix), scheme
 
-def build_nn(stats, scheme, target_attr):
-    print(stats)
-    print(scheme)
+def build_nn(matrix, stats, scheme, target_attr):
+    x = tf.placeholder(tf.float32,[None,matrix.shape[0]])
+    W = tf.Variable(tf.zeros(matrix.shape))
+	b = tf.Variable(tf.zeros([matrix.shape[1]]))
+
+	y = tf.nn.softmax(tf.matmul(x, W) + b)
+
+	y_ = tf.placeholder(tf.float32, [None, matrix.shape[1]])
 
 def main():
     m, s = table_to_numpy(db, 'Player_Attributes')
     print(m.shape)
-    build_nn(get_stats(db, 'Player_Attributes'),s,'overall_rating')
+    build_nn(m,get_stats(db, 'Player_Attributes'),s,'overall_rating')
 
 if __name__ == '__main__':
     main()
