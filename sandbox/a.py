@@ -1,6 +1,7 @@
 import sqlite3
 from pprint import pprint
 import numpy as np
+import tensorflow as tf
 
 db = sqlite3.connect("../dataset/database.sqlite")
 
@@ -102,14 +103,74 @@ def table_to_numpy(db, table):
         matrix.append(row)
     return np.asarray(matrix), scheme
 
-def build_nn(stats, scheme, target_attr):
-    print(stats)
-    print(scheme)
+class Model():
+    pass
 
-def main():
-    m, s = table_to_numpy(db, 'Player_Attributes')
-    print(m.shape)
-    build_nn(get_stats(db, 'Player_Attributes'),s,'overall_rating')
+def build_nn(stats, scheme, target_attr):
+    "Building a MLP that accepts inputs which are not target_attr"
+
+    def get_attr_dim(attr):
+        stat = stats.get(attr)
+        if stat['datatype'] == 'NUM':
+            return 1
+        else:
+            return stat['size']
+
+    def get_input_dim():
+        dim = 0
+        for attr in stats.keys():
+            if attr is not target_attr:
+                dim += get_attr_dim(attr)
+        return dim
+
+    def get_output_dim():
+        return get_attr_dim(target_attr)
+
+    def get_cost(ref, output):
+        if stats[target_attr]['datatype'] == 'NUM':
+            return tf.reduce_mean(tf.sqrt(tf.pow(ref - output, 2)))
+        else:
+            return tf.reduce_mean(
+                    tf.nn.softmax_cross_entropy_with_logits(
+                        labels=ref, logits=output))
+
+    N1 = 100
+    N2 = 20
+    N_output = get_output_dim()
+
+    mlp = Model()
+    mlp.input = tf.placeholder(tf.float32, (None, get_input_dim()))
+    mlp.ref   = tf.placeholder(tf.float32, (None, N_output))
+    mlp.L1    = tf.layers.dense(
+                    inputs=mlp.input, units=N1, activation=tf.nn.relu)
+    mlp.L2    = tf.layers.dense(
+                    inputs=mlp.L1, units=N2, activation=tf.nn.relu)
+    mlp.output = tf.layers.dense(
+                    inputs=mlp.L2, units=N_output)
+    mlp.cost   = get_cost(mlp.ref, mlp.output)
+    return mlp
+
+def get_training_data(table, scheme, target_attr):
+    i, j = scheme[target_attr]
+    x = np.hstack([table[:, :i], table[:, j:]])
+    y = table[:, i:j]
+    return x, y
+
+def train(model, x, y):
+    learning_rate = 0.01
+    epochs = 1000
+
+    optimizer = tf.train.GradientDescentOptimizer(
+            learning_rate).minimize(model.cost)
+
+    feed = {model.input: x, model.ref: y}
+
+    s = tf.Session()
+    s.run(tf.global_variables_initializer())
+    print("Initial cost: %.2f" % s.run(model.cost, feed))
 
 if __name__ == '__main__':
-    main()
+    m, s = table_to_numpy(db, 'Player_Attributes')
+    print(m.shape)
+    model = build_nn(get_stats(db, 'Player_Attributes'),s,'overall_rating')
+    train(model, *get_training_data(m, s, 'overall_rating'))
