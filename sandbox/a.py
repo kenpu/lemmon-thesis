@@ -191,11 +191,12 @@ if __name__ == '__main__':
     m, s = table_to_numpy(db, 'Player_Attributes')
     print(m.shape)
     cols = get_table_cols(db)
-    start_time = time.time()
-    target = 'preferred_foot'
-    table_stat = get_table_stat(db, 'Player_Attributes')
-    model = build_nn(table_stat,s,target)
-    x, y = get_training_data(m, s, target)
-    values = train(model, x,y)
-    end_time  = time.time()
-    write_to_file(target, end_time-start_time, values)
+    for target in cols:
+    	start_time = time.time()
+    	#target = 'preferred_foot'
+    	table_stat = get_table_stat(db, 'Player_Attributes')
+    	model = build_nn(table_stat,s,target)
+    	x, y = get_training_data(m, s, target)
+    	values = train(model, x,y)
+    	end_time  = time.time()
+    	write_to_file(target, end_time-start_time, values)
