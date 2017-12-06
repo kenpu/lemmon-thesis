@@ -2,8 +2,23 @@ import sqlite3
 from pprint import pprint
 import numpy as np
 import tensorflow as tf
+import time
 
 db = sqlite3.connect("../dataset/database.sqlite")
+
+def write_to_file(target_attr,time, values):
+	f = open('../output/' + target_attr + '_vals.txt','w')
+	f.write("%6.6f" % time + "\n")
+	for x in values:
+		f.write("%1.6f" % x + "\n")
+	f.close()
+
+
+def contains_none(r):
+    for v in r:
+        if v is None:
+            return True
+    return False
 
 def select(db, table):
     c = db.cursor()
@@ -13,10 +28,11 @@ def select(db, table):
         row = c.fetchone()
         if row == None:
             break
+        elif contains_none(row):
+        	continue
         else:
             yield list(zip(attr_names, row))
     c.close()
-
 
 def peek_row(db, table):
     c = db.cursor()
@@ -47,15 +63,15 @@ def get_num_stats(db, table, attr):
 def get_cat_stats(db, t, a):
     c = db.cursor()
     c.execute('''
-        select distinct %s as x from %s order by x
+        select distinct %s as x from %s where x is not null order by x
         ''' % (a, t))
-    rows = c.fetchall()
+    rows = c.fetchall() 
     c.close()
     return dict(datatype='CAT', 
             size=len(rows), 
-            domain=dict((i, x[0]) for (i, x) in enumerate(rows)))
+            domain=dict((x[0], i) for (i, x) in enumerate(rows)))
 
-def get_stats(db, table):
+def get_table_stat(db, table):
     c = db.cursor()
     stats = dict()
     for attr_name, value in peek_row(db, table):
@@ -77,20 +93,12 @@ def encode(stat, datavalue):
         if i is not None: vec[i] = 1
     return vec
 
-def contains_none(r):
-    for (a, v) in r:
-        if v is None:
-            return True
-    return False
-
 def table_to_numpy(db, table):
     "Return a numpy 2D matrix, and an encoding scheme"
-    stats = get_stats(db, table)
+    stats = get_table_stat(db, table)
     matrix = []
     scheme = dict()
     for r in select(db, table):
-        if contains_none(r):
-            continue
 
         row = []
         for (attr_name, value) in r:
@@ -106,11 +114,11 @@ def table_to_numpy(db, table):
 class Model():
     pass
 
-def build_nn(stats, scheme, target_attr):
+def build_nn(table_stat, scheme, target_attr):
     "Building a MLP that accepts inputs which are not target_attr"
 
     def get_attr_dim(attr):
-        stat = stats.get(attr)
+        stat = table_stat.get(attr)
         if stat['datatype'] == 'NUM':
             return 1
         else:
@@ -118,7 +126,7 @@ def build_nn(stats, scheme, target_attr):
 
     def get_input_dim():
         dim = 0
-        for attr in stats.keys():
+        for attr in table_stat.keys():
             if attr != target_attr:
             	dim += get_attr_dim(attr)
         return dim
@@ -127,8 +135,8 @@ def build_nn(stats, scheme, target_attr):
         return get_attr_dim(target_attr)
 
     def get_cost(ref, output):
-        if stats[target_attr]['datatype'] == 'NUM':
-            return tf.reduce_mean(tf.sqrt(tf.pow(ref - output, 2)))
+        if table_stat[target_attr]['datatype'] == 'NUM':
+            return tf.reduce_mean(tf.pow(ref - output, 2))
         else:
             return tf.reduce_mean(
                     tf.nn.softmax_cross_entropy_with_logits(
@@ -152,24 +160,42 @@ def build_nn(stats, scheme, target_attr):
 def get_training_data(table, scheme, target_attr):
     i, j = scheme[target_attr]
     x = np.hstack([table[:, :i], table[:, j:]])
+
     y = table[:, i:j]
     return x, y
 
 def train(model, x, y):
-    learning_rate = 0.01
+    learning_rate = 0.001
     epochs = 1000
 
-    optimizer = tf.train.GradientDescentOptimizer(
+    optimizer = tf.train.AdamOptimizer(
             learning_rate).minimize(model.cost)
 
     feed = {model.input: x, model.ref: y}
-
+    values = []
     s = tf.Session()
     s.run(tf.global_variables_initializer())
-    print("Initial cost: %.2f" % s.run(model.cost, feed))
+    values.append(s.run(model.cost, feed))
+    print("Initial cost: %.2f" % values[0])
+    for i in range(epochs):
+    	s.run(optimizer, feed)
+    	values.append(s.run(model.cost, feed))
+    	print("Cost: %.6f" % values[i])
+    return values
+
+def get_table_cols(db):
+	c = db.execute('select * from Player_Attributes')
+	return  [description[0] for description in c.description]
 
 if __name__ == '__main__':
     m, s = table_to_numpy(db, 'Player_Attributes')
     print(m.shape)
-    model = build_nn(get_stats(db, 'Player_Attributes'),s,'overall_rating')
-    train(model, *get_training_data(m, s, 'overall_rating'))
+    cols = get_table_cols(db)
+    start_time = time.time()
+    target = 'preferred_foot'
+    table_stat = get_table_stat(db, 'Player_Attributes')
+    model = build_nn(table_stat,s,target)
+    x, y = get_training_data(m, s, target)
+    values = train(model, x,y)
+    end_time  = time.time()
+    write_to_file(target, end_time-start_time, values)
