@@ -10,7 +10,7 @@ def write_to_file(target_attr,time, values):
 	f = open('../output/' + target_attr + '_vals.txt','w')
 	f.write("%6.6f" % time + "\n")
 	for x in values:
-		f.write("%1.6f" % x + "\n")
+		f.write("%.10f" % x + "\n")
 	f.close()
 
 
@@ -168,7 +168,7 @@ def train(model, x, y):
     learning_rate = 0.001
     epochs = 1000
 
-    optimizer = tf.train.AdamOptimizer(
+    optimizer = tf.train.GradientDescentOptimizer(
             learning_rate).minimize(model.cost)
 
     feed = {model.input: x, model.ref: y}
@@ -180,7 +180,7 @@ def train(model, x, y):
     for i in range(epochs):
     	s.run(optimizer, feed)
     	values.append(s.run(model.cost, feed))
-    	print("Cost: %.6f" % values[i])
+    	#print("Cost: %.6f" % values[i])
     return values
 
 def get_table_cols(db):
@@ -192,11 +192,14 @@ if __name__ == '__main__':
     print(m.shape)
     cols = get_table_cols(db)
     for target in cols:
-    	start_time = time.time()
-    	#target = 'preferred_foot'
-    	table_stat = get_table_stat(db, 'Player_Attributes')
-    	model = build_nn(table_stat,s,target)
-    	x, y = get_training_data(m, s, target)
-    	values = train(model, x,y)
-    	end_time  = time.time()
-    	write_to_file(target, end_time-start_time, values)
+    	if(target not in ['id', 'player_fifa_api_id', 'player_api_id', 'date']):
+	    	print("Training Column: " + target)
+	    	start_time = time.time()
+	    	#target = 'preferred_foot'
+	    	table_stat = get_table_stat(db, 'Player_Attributes')
+	    	model = build_nn(table_stat,s,target)
+	    	x, y = get_training_data(m, s, target)
+	    	values = train(model, x,y)
+	    	end_time  = time.time()
+	    	#print("Total time: %.3f" % end_time-start_time)
+	    	write_to_file(target, end_time-start_time, values)
