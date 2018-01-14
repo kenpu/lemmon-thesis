@@ -1,2 +1,2 @@
 all:
-	cd sandbox; python a.py
+	cd sandbox; python a.py; python graph_generation.py

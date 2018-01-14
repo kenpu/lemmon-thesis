@@ -3,6 +3,8 @@ from pprint import pprint
 import numpy as np
 import tensorflow as tf
 import time
+import random
+import itertools
 
 db = sqlite3.connect("../dataset/database.sqlite")
 
@@ -22,7 +24,7 @@ def contains_none(r):
 
 def select(db, table):
     c = db.cursor()
-    c.execute("select * from %s" % table)
+    c.execute("select * from %s" % table + " order by random()")
     attr_names = [x[0] for x in c.description]
     while True:
         row = c.fetchone()
@@ -114,7 +116,7 @@ def table_to_numpy(db, table):
 class Model():
     pass
 
-def build_nn(table_stat, scheme, target_attr):
+def build_nn(table_stat, scheme, target_attr, input_cols):
     "Building a MLP that accepts inputs which are not target_attr"
 
     def get_attr_dim(attr):
@@ -160,7 +162,6 @@ def build_nn(table_stat, scheme, target_attr):
 def get_training_data(table, scheme, target_attr):
     i, j = scheme[target_attr]
     x = np.hstack([table[:, :i], table[:, j:]])
-
     y = table[:, i:j]
     return x, y
 
@@ -187,6 +188,14 @@ def get_table_cols(db):
 	c = db.execute('select * from Player_Attributes')
 	return  [description[0] for description in c.description]
 
+def get_powersets(target, columns):
+	power_set = itertools.chain.from_iterable(itertools.combinations(columns, r) for r in range(len(columns)+1))
+	sets = []	
+	for s in power_set:
+		if len(s) > 1 and target in s:
+			sets.append(s)
+	return sets
+
 if __name__ == '__main__':
     m, s = table_to_numpy(db, 'Player_Attributes')
     print(m.shape)
@@ -195,11 +204,14 @@ if __name__ == '__main__':
     	if(target not in ['id', 'player_fifa_api_id', 'player_api_id', 'date']):
 	    	print("Training Column: " + target)
 	    	start_time = time.time()
+	    	sets = get_powersets(target, cols)
+	    	print(sets)
 	    	#target = 'preferred_foot'
-	    	table_stat = get_table_stat(db, 'Player_Attributes')
-	    	model = build_nn(table_stat,s,target)
-	    	x, y = get_training_data(m, s, target)
-	    	values = train(model, x,y)
-	    	end_time  = time.time()
+	    	for x in sets:
+	    		table_stat = get_table_stat(db, 'Player_Attributes')
+	    		model = build_nn(table_stat,s,target, x)
+	    		x, y = get_training_data(m, s, target, x)
+	    		#values = train(model, x,y)
+	    		end_time  = time.time()
 	    	#print("Total time: %.3f" % end_time-start_time)
-	    	write_to_file(target, end_time-start_time, values)
+	    		write_to_file(target, end_time-start_time										, values)
