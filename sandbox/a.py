@@ -4,7 +4,6 @@ import numpy as np
 import tensorflow as tf
 import time
 import random
-import itertools
 
 db = sqlite3.connect("../dataset/database.sqlite")
 
@@ -116,7 +115,7 @@ def table_to_numpy(db, table):
 class Model():
     pass
 
-def build_nn(table_stat, scheme, target_attr, input_cols):
+def build_nn(table_stat, scheme, target_attr):
     "Building a MLP that accepts inputs which are not target_attr"
 
     def get_attr_dim(attr):
@@ -150,24 +149,27 @@ def build_nn(table_stat, scheme, target_attr, input_cols):
     mlp = Model()
     mlp.input = tf.placeholder(tf.float32, (None, get_input_dim()))
     mlp.ref   = tf.placeholder(tf.float32, (None, N_output))
-    mlp.L1    = tf.layers.dense(
-                    inputs=mlp.input, units=N1, activation=tf.nn.relu)
-    mlp.L2    = tf.layers.dense(
-                    inputs=mlp.L1, units=N2, activation=tf.nn.relu)
-    mlp.output = tf.layers.dense(
-                    inputs=mlp.L2, units=N_output)
+    mlp.L1    = tf.layers.dense(inputs=mlp.input, units=N1, activation=tf.nn.relu)
+    mlp.L2    = tf.layers.dense(inputs=mlp.L1, units=N2, activation=tf.nn.relu)
+    mlp.output = tf.layers.dense(inputs=mlp.L2, units=N_output)
     mlp.cost   = get_cost(mlp.ref, mlp.output)
     return mlp
 
-def get_training_data(table, scheme, target_attr):
+def get_training_data(table, scheme, target_attr, i, train_size=1000):
     i, j = scheme[target_attr]
-    x = np.hstack([table[:, :i], table[:, j:]])
-    y = table[:, i:j]
+    x = np.hstack([table[i*train_size:i*train_size+train_size, :i], table[i*train_size:i*train_size+train_size, j:]])
+    y = table[i*train_size:i*train_size+train_size, i:j]
+    print(x.shape)
+    print(y.shape)
     return x, y
+
+def get_testing_data(table, i, train_size=1000, num_data=100):
+    y = table[i*train_size:i*train_size+num_data, :]
+    return y
 
 def train(model, x, y):
     learning_rate = 0.001
-    epochs = 1000
+    epochs = 10000
 
     optimizer = tf.train.GradientDescentOptimizer(
             learning_rate).minimize(model.cost)
@@ -177,41 +179,71 @@ def train(model, x, y):
     s = tf.Session()
     s.run(tf.global_variables_initializer())
     values.append(s.run(model.cost, feed))
-    print("Initial cost: %.2f" % values[0])
-    for i in range(epochs):
+    print("Initial cost: %.7f" % values[0])
+    for i in range(len(y)):
     	s.run(optimizer, feed)
     	values.append(s.run(model.cost, feed))
     	#print("Cost: %.6f" % values[i])
-    return values
+    print("Final cost: %.7f" % values[-1])
+    return values, model
+
+
+
+def test(target_attr, test_data, model, table_stat, scheme):
+	#splitting test_data into input values(x) and expected output(y)
+	i, j = scheme[target_attr]
+	x_vals = np.hstack([test_data[:,:i], test_data[:,j:]])
+	y_vals = test_data[:,i:j]
+	datatype = table_stat[target_attr]['datatype']
+	s = tf.Session()
+	s.run(tf.global_variables_initializer())
+	#if target attribute is numerical, calculate % correct of guess compared to actual value
+	if(datatype == 'NUM'):
+		guess_vals = s.run(model.output,feed_dict={model.input:x_vals}) #returns an array of size 100 instead of just a single value?
+		e = []
+		for i in range(len(test_data)):
+			e.append(np.absolute(np.absolute(guess_vals[i])-y_vals[i])/y_vals[i])
+		accuracy = sum(e)/float(len(e))*100
+		print('Accuracy: %.4f' % accuracy)
+		return accuracy
+	elif(datatype == 'CAT' and table_stat[target_attr]['size'] > 2):
+		guess_vals = s.run(model.output,feed_dict={model.input:x_vals})
+		e = []
+		for i in range(len(test_data)):
+			e.append(max(guess_vals[i]))
+	elif(datatype == 'CAT' and table_stat[target_attr]['size'] == 2):
+		guess_vals = s.run(model.output,feed_dict={model.input:x_vals})
+		print(guess_vals)
+		e = []
+		for i in range(len(test_data)):
+			e.append(max(guess_vals[i]))
+		accuracy = sum(e)/float(len(e))
+		print('Accuracy: %.4f' % accuracy)
+		return accuracy
+
+
 
 def get_table_cols(db):
 	c = db.execute('select * from Player_Attributes')
 	return  [description[0] for description in c.description]
 
-def get_powersets(target, columns):
-	power_set = itertools.chain.from_iterable(itertools.combinations(columns, r) for r in range(len(columns)+1))
-	sets = []	
-	for s in power_set:
-		if len(s) > 1 and target in s:
-			sets.append(s)
-	return sets
-
 if __name__ == '__main__':
     m, s = table_to_numpy(db, 'Player_Attributes')
     print(m.shape)
     cols = get_table_cols(db)
+    i = 0
     for target in cols:
     	if(target not in ['id', 'player_fifa_api_id', 'player_api_id', 'date']):
 	    	print("Training Column: " + target)
 	    	start_time = time.time()
-	    	sets = get_powersets(target, cols)
-	    	print(sets)
 	    	#target = 'preferred_foot'
-	    	for x in sets:
-	    		table_stat = get_table_stat(db, 'Player_Attributes')
-	    		model = build_nn(table_stat,s,target, x)
-	    		x, y = get_training_data(m, s, target, x)
-	    		#values = train(model, x,y)
-	    		end_time  = time.time()
+	    	table_stat = get_table_stat(db, 'Player_Attributes')
+	    	model = build_nn(table_stat,s,target)
+	    	x, y = get_training_data(m, s, target, i, 1000)
+	    	y_test= get_testing_data(m, i, 1000)
+	    	values, model = train(model, x,y)
+	    	accuracy = test(target, y_test, model, table_stat, s)
+	    	end_time  = time.time()
 	    	#print("Total time: %.3f" % end_time-start_time)
-	    		write_to_file(target, end_time-start_time										, values)
+	    	write_to_file(target, end_time-start_time, values)
+	    	i+=1
