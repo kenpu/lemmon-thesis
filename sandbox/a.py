@@ -7,9 +7,10 @@ import random
 
 db = sqlite3.connect("../dataset/database.sqlite")
 
-def write_to_file(target_attr,time, values):
+def write_to_file(target_attr,time, values, accuracy):
 	f = open('../output/' + target_attr + '_vals.txt','w')
 	f.write("%6.6f" % time + "\n")
+	f.write("%.10f" % accuracy + "\n")
 	for x in values:
 		f.write("%.10f" % x + "\n")
 	f.close()
@@ -199,7 +200,7 @@ def test(target_attr, test_data, model, table_stat, scheme):
 	s.run(tf.global_variables_initializer())
 	#if target attribute is numerical, calculate % correct of guess compared to actual value
 	if(datatype == 'NUM'):
-		guess_vals = s.run(model.output,feed_dict={model.input:x_vals}) #returns an array of size 100 instead of just a single value?
+		guess_vals = s.run(model.output,feed_dict={model.input:x_vals}) 
 		e = []
 		for i in range(len(test_data)):
 			e.append(np.absolute(np.absolute(guess_vals[i])-y_vals[i])/y_vals[i])
@@ -208,17 +209,26 @@ def test(target_attr, test_data, model, table_stat, scheme):
 		return accuracy
 	elif(datatype == 'CAT' and table_stat[target_attr]['size'] > 2):
 		guess_vals = s.run(model.output,feed_dict={model.input:x_vals})
-		e = []
+		num_correct = 0
 		for i in range(len(test_data)):
-			e.append(max(guess_vals[i]))
+			index_1 = np.where(guess_vals[i]==max(guess_vals[i]))
+			temp = list(filter(lambda x: x != max(guess_vals[i]), guess_vals[i]))
+			index_2 = np.where(temp==max(temp))
+			if(y_vals[i][index_1]==1. or y_vals[i][index_2]==1.):
+				num_correct+=1
+		accuracy = num_correct/len(test_data)
+		print('Accuracy: %.4f' % accuracy*100)
+		return accuracy
 	elif(datatype == 'CAT' and table_stat[target_attr]['size'] == 2):
 		guess_vals = s.run(model.output,feed_dict={model.input:x_vals})
-		print(guess_vals)
-		e = []
+		num_correct = 0
 		for i in range(len(test_data)):
-			e.append(max(guess_vals[i]))
-		accuracy = sum(e)/float(len(e))
-		print('Accuracy: %.4f' % accuracy)
+			index = np.where(guess_vals[i]==max(guess_vals[i]))
+			if(y_vals[i][index]==1.):
+				num_correct+=1
+		accuracy = num_correct/len(test_data)
+
+		print('Accuracy: %.4f' % accuracy*100)
 		return accuracy
 
 
@@ -245,5 +255,5 @@ if __name__ == '__main__':
 	    	accuracy = test(target, y_test, model, table_stat, s)
 	    	end_time  = time.time()
 	    	#print("Total time: %.3f" % end_time-start_time)
-	    	write_to_file(target, end_time-start_time, values)
+	    	write_to_file(target, end_time-start_time, values, accuracy)
 	    	i+=1
